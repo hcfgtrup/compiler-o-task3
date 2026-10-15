@@ -1,0 +1,22 @@
+MODULE TestNeg;
+VAR
+    a, b : INTEGER;
+BEGIN
+    a := 5;
+    b := 0;
+
+    IF (a > 10) & (b = 0) THEN
+        Out.Int(100, 0);
+    END;
+    Out.Ln;
+
+    IF (a > 10) OR (b > 5) THEN
+        Out.Int(200, 0);
+    END;
+    Out.Ln;
+
+    IF ~(b = 0) THEN
+        Out.Int(300, 0);
+    END;
+    Out.Ln;
+END TestNeg.
