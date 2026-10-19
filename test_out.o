@@ -1,0 +1,10 @@
+MODULE TestOut;
+VAR
+    a, b : INTEGER;
+BEGIN
+    a := 5;
+    b := 0;
+    IF (a > 0) & (b = 0) THEN
+        Out.Int(1, 0);
+    END;
+END TestOut.

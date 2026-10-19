@@ -24,21 +24,27 @@ public:
     void genOutInt();
     void genOutLn();
     void genGoTo(int code);
-    void fillGaps(int to);
+    
+    // ИЗМЕНЕНО: fillGaps теперь заполняет цепочку заглушек переходов
+    void fillGaps(int lastGap);
+    
     void genDup();
     void genLoad();
     void genSTOP();
+    
+    // ИЗМЕНЕНО: genAddress теперь просто пишет адрес, не создавая заглушек
     void genAddress(Item& item);
+    
     void genSave();
 
-    // ДОБАВЛЕНО: три метода для логических операций.
-    // Реализация — через работу с цепочками переходов, а не через арифметику ОВМ,
-    // потому что сравнения в этом компиляторе генерируют условные ПЕРЕХОДЫ
-    // (IFNE, IFEQ, IFLT и т.д.) с адресами-заглушками, а не числа 0/1 на стеке.
-    // Поэтому MULT/ADD над ними ломают память ОВМ (Assertion failed в vector).
+    // ДОБАВЛЕНО: методы для логических операций
     void genLogicalAnd();
     void genLogicalOr();
     void genLogicalNot();
+
+    // ДОБАВЛЕНО: работа с цепочкой заглушек переходов
+    int getLastGap() { return lastGapAddress; }
+    void resetGaps() { lastGapAddress = 0; }
 
     int getCmdCounter();
 
@@ -49,4 +55,6 @@ public:
 private:
     int cmdCounter; 
     OVM ovm;
+    // ДОБАВЛЕНО: адрес последней созданной заглушки перехода
+    int lastGapAddress = 0;
 };

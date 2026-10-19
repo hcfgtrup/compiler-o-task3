@@ -1,0 +1,19 @@
+MODULE TestWhile;
+VAR
+    i, sum : INTEGER;
+BEGIN
+    i := 0;
+    sum := 0;
+
+    (* Цикл, пока i < 5 И sum < 20 *)
+    WHILE (i < 5) & (sum < 20) DO
+        sum := sum + i;
+        INC(i)
+    END;
+
+    (* Вывести результат *)
+    Out.Int(sum, 0);
+    Out.Ln;
+    Out.Int(i, 0);
+    Out.Ln;
+END TestWhile.

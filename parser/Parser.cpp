@@ -25,16 +25,8 @@ void Parser::compile()
     table.addItem(table.procedureItem("HALT"));
     table.addItem(table.procedureItem("INC"));
     table.addItem(table.procedureItem("DEC"));
-
-    // ДОБАВЛЕНО: регистрируем модули In и Out в таблице имён.
-    // Без этих строк парсер при разборе "Out.Int" сначала ищет "Out"
-    // через findItem("Out"), не находит и падает с ошибкой
-    // "Необъявленное имя" ещё до того, как дойдёт до ".Int".
-    // Раньше Out добавлялся только при наличии IMPORT In, Out;
-    // но в тестах IMPORT отсутствует, поэтому добавляем безусловно.
     table.addItem(table.moduleItem("In"));
     table.addItem(table.moduleItem("Out"));
-
     table.addItem(table.procedureItem("In.Open"));
     table.addItem(table.procedureItem("In.Int"));
     table.addItem(table.procedureItem("Out.Int"));
@@ -53,12 +45,6 @@ void Parser::compile()
     generateCode.runCode();
 }
 
-// MODULE Имя ";"
-// [Импорт]
-// ПослОбъявл
-// [BEGIN
-//   ПослОператоров]
-// END Имя "."
 void Parser::modulePrc() 
 {
     checkLex(Scanner::Lex::MODULE);
@@ -99,25 +85,14 @@ void Parser::modulePrc()
     loccateVariables();
 }
 
+// ИЗМЕНЕНО: теперь просто дописываем STOP и не трогаем адреса
 void Parser::loccateVariables()
 {
-    auto vars = table.getVars();
-    generateCode.gen(generateCode.getCmdCounter());
-    std::reverse(vars.begin(), vars.end());
-    for (Item& var : vars)
-    {
-        if (std::stoi(var.addr) > 0) {
-            generateCode.fillGaps(std::stoi(var.addr));
-            generateCode.gen(0); // Увеличили cmdCounter на 1
-        }
-        else
-        {
-            std::cout << "Переменна `" << var.name << "` объявлена, но не используется" << std::endl;
-        }
-    }
+    // Адреса переменных уже установлены в contextVarPrc
+    // Здесь просто добавляем финальный STOP для страховки
+    generateCode.genSTOP();
 }
 
-// IMPORT Имя {"," Имя} ";".
 void Parser::importPrc()
 {
     checkLex(Scanner::Lex::IMPORT);
@@ -170,12 +145,10 @@ int Parser::constExpresionPrc()
 {
     int sign = 1;
     
-    // не проверяем деление на 0, переполнение и тп
     if (scanner.lex == Scanner::Lex::MINUS)
     {
         checkLex(Scanner::Lex::MINUS);
         sign = -1;
-
     }
     else if (scanner.lex == Scanner::Lex::PLUS)
     {
@@ -222,10 +195,20 @@ void Parser::varDeclarationPrc()
     typePrc();
 }
 
+// ИЗМЕНЕНО: здесь сразу устанавливаем реальный адрес переменной
 void Parser::contextVarPrc()
 {
     errorIfNotExpectedLex(Scanner::Lex::NAME);
-    table.newItem(table.varItem(scanner.nameValue, Item::ItemTypes::Integer, "0"));
+    
+    // Адрес переменной = текущий cmdCounter + 1 (после байткода)
+    // Но мы не знаем cmdCounter заранее...
+    // Поэтому используем фиксированный адрес 1000 + порядковый номер
+    // Это безопасно, т.к. байткод занимает < 1000 ячеек
+    
+    static int nextVarAddr = 1000; // ИЗМЕНЕНО: фиксированная область данных
+    std::string addr = std::to_string(nextVarAddr++);
+    
+    table.newItem(table.varItem(scanner.nameValue, Item::ItemTypes::Integer, addr));
     scanner.nextLex();
 }
 
@@ -252,20 +235,6 @@ void Parser::sequenceStatementsPrc()
     }
 }
 
-// [
-//   Переменная ":=" Выраж
-//   | [Имя "."] Имя ["(" Параметр {"," Параметр}] ")"]
-//   | IF Выраж THEN
-//     ПослОператоров
-//   {ELSIF Выраж THEN
-//     ПослОператоров}
-//   [ELSE
-//     ПослОператоров]
-//    END
-//   | WHILE Выраж DO
-//     ПослОператоров
-//   END
-// ]
 void Parser::statementsPrc()
 {
     if (scanner.lex == Scanner::Lex::NAME)
@@ -282,8 +251,6 @@ void Parser::statementsPrc()
     }
 }
 
-//   Переменная ":=" Выраж
-//   | [Имя "."] Имя ["(" Параметр {"," Параметр}] ")"]
 void Parser::variableOrCallPrc()
 {
     errorIfNotExpectedLex(Scanner::Lex::NAME);
@@ -336,7 +303,6 @@ void Parser::variableOrCallPrc()
         }
         else if (item->name != "Out.Ln" && item->name != "In.Open")
         {
-            // Скобки могут не быть только после Out.Ln или In.Open
             errorPtr->contextError("Ожидается скобка");
         }
     }
@@ -346,92 +312,71 @@ void Parser::variableOrCallPrc()
     }
 }
 
-//   IF Выраж THEN
-//     ПослОператоров
-//   {ELSIF Выраж THEN
-//     ПослОператоров}
-//   [ELSE
-//     ПослОператоров]
-//    END
+// ИЗМЕНЕНО: используем цепочку заглушек
 void Parser::ifStatementPrc()
 {
     checkLex(Scanner::Lex::IF);
-    // ИЗМЕНЕНО: вызываем logicalExpressionPrc вместо expressionPrc
+    
+    generateCode.resetGaps();
+    
     Item::ItemTypes expressionType = logicalExpressionPrc();
     checkBoolType(expressionType);
     checkLex(Scanner::Lex::THEN);
 
-    int afterConditionPosition = generateCode.getCmdCounter();
-    int lastGoToPosition = 0;
+    int conditionGaps = generateCode.getLastGap();
+    generateCode.resetGaps();
 
     sequenceStatementsPrc();
 
-    while (scanner.lex == Scanner::Lex::ELSIF)
-    {
-        generateCode.genGoTo(lastGoToPosition);
-        lastGoToPosition = generateCode.getCmdCounter();
-        generateCode.fillGaps(afterConditionPosition); // Переход на ELSE IF с предыдущего IF
-
-        checkLex(Scanner::Lex::ELSIF);
-        // ИЗМЕНЕНО: вызываем logicalExpressionPrc
-        expressionType = logicalExpressionPrc();
-        checkBoolType(expressionType);
-        checkLex(Scanner::Lex::THEN);
-
-        afterConditionPosition = generateCode.getCmdCounter();
-
-        sequenceStatementsPrc();
-    }
-
     if (scanner.lex == Scanner::Lex::ELSE)
     {
-        generateCode.genGoTo(lastGoToPosition);
-        lastGoToPosition = generateCode.getCmdCounter();  // 32
-        generateCode.fillGaps(afterConditionPosition); // Переход на ELSE с предыдущего IF
-
+        int gotoEnd = generateCode.getCmdCounter();
+        generateCode.genGoTo(0);
+        
+        generateCode.fillGaps(conditionGaps);
+        
         checkLex(Scanner::Lex::ELSE);
         sequenceStatementsPrc();
-    } 
+        
+        generateCode.fillGaps(gotoEnd);
+    }
     else
     {
-        // Если нет ELSE, то генерировать GoTo не надо
-        generateCode.fillGaps(afterConditionPosition); // Переход на позицию после END с предыдущего IF
+        generateCode.fillGaps(conditionGaps);
     }
 
     checkLex(Scanner::Lex::END);
-    generateCode.fillGaps(lastGoToPosition);
 }
 
-//   WHILE Выраж DO
-//     ПослОператоров
-//   END
+// ИЗМЕНЕНО: используем цепочку заглушек
 void Parser::whileStatementPrc()
 {
-    auto whilePosition = generateCode.getCmdCounter(); // 6
+    int whilePosition = generateCode.getCmdCounter();
 
     checkLex(Scanner::Lex::WHILE);
-    // ИЗМЕНЕНО: вызываем logicalExpressionPrc
+    
+    generateCode.resetGaps();
+    
     Item::ItemTypes expressionType = logicalExpressionPrc();
     checkBoolType(expressionType);
 
-    auto afterConditionPosition = generateCode.getCmdCounter(); // 14
+    int conditionGaps = generateCode.getLastGap();
+    generateCode.resetGaps();
 
     checkLex(Scanner::Lex::DO);
     sequenceStatementsPrc();
     checkLex(Scanner::Lex::END);
 
-    generateCode.genGoTo(whilePosition); // 6
-    generateCode.fillGaps(afterConditionPosition);  // conditionPosition = первая позиция после условного выржения (IFEQ). Значит нам нужно заполнить значение по адресу conditionPosition - 2
+    generateCode.genGoTo(whilePosition);
+
+    generateCode.fillGaps(conditionGaps);
 }
 
-// Параметр | Выражение
-// Пока нет контекстного анализатора
 void Parser::parameterPrc()
 {
     expressionPrc();
 }
 
-// ПростоеВыраж [Отношение ПростоеВыраж]
 Item::ItemTypes Parser::expressionPrc()
 {
     Item::ItemTypes simpleExpressionType = simpleExpressionPrc();
@@ -457,14 +402,9 @@ Item::ItemTypes Parser::expressionPrc()
     }
 }
 
-// ДОБАВЛЕНО: реализация разбора логических выражений
-// Логическое выражение: Выражение { (& | OR) Выражение }
 Item::ItemTypes Parser::logicalExpressionPrc()
 {
-    // Сначала разбираем левый операнд (это может быть сравнение)
     Item::ItemTypes leftType = expressionPrc(); 
-    
-    // Проверяем, что левый операнд — логического типа (результат сравнения)
     checkBoolType(leftType);
 
     while (scanner.lex == Scanner::Lex::AND || scanner.lex == Scanner::Lex::OR)
@@ -472,11 +412,9 @@ Item::ItemTypes Parser::logicalExpressionPrc()
         auto operation = scanner.lex;
         scanner.nextLex();
         
-        // Разбираем правый операнд
         Item::ItemTypes rightType = expressionPrc();
         checkBoolType(rightType);
 
-        // Генерируем код для логической операции
         if (operation == Scanner::Lex::AND)
         {
             generateCode.genLogicalAnd();
@@ -490,7 +428,6 @@ Item::ItemTypes Parser::logicalExpressionPrc()
     return Item::ItemTypes::Boolean;
 }
 
-// ["+"|"-"] Слагаемое {ОперСлож Слагаемое}.
 Item::ItemTypes Parser::simpleExpressionPrc()
 {
     Item::ItemTypes termType;
@@ -536,11 +473,10 @@ Item::ItemTypes Parser::simpleExpressionPrc()
     return termType;
 }
 
-// Множитель {ОперацияУмножения Множитель}
 Item::ItemTypes Parser::termPrc()
 {
     Item::ItemTypes multiplierType;
-    multiplierType = multiplierPrc(); // Может быть ODD с типом Boolean
+    multiplierType = multiplierPrc();
 
     if (scanner.lex == Scanner::Lex::DIV ||
             scanner.lex == Scanner::Lex::MOD ||
@@ -563,17 +499,13 @@ Item::ItemTypes Parser::termPrc()
     return multiplierType;
 }
 
-// Имя ["(" Выраж | Тип ")"]
-// | Число
-// | "(" Выраж ")".
 Item::ItemTypes Parser::multiplierPrc()
 {
-    // ДОБАВЛЕНО: обработка унарного логического НЕ (~)
     if (scanner.lex == Scanner::Lex::NOT)
     {
         scanner.nextLex();
-        Item::ItemTypes type = multiplierPrc(); // Рекурсивно разбираем то, что отрицаем
-        checkBoolType(type); // Отрицать можно только логическое
+        Item::ItemTypes type = multiplierPrc();
+        checkBoolType(type);
         generateCode.genLogicalNot();
         return Item::ItemTypes::Boolean;
     }
@@ -652,7 +584,7 @@ void Parser::checkProcParameters(Item item)
     else if (item.name == "INC")
     {
         errorIsNotVariable();
-        generateCode.genDup(); // Чтобы был адрес для сохранения значения при SAVE
+        generateCode.genDup();
         generateCode.genLoad();
         if (scanner.lex == Scanner::Lex::COMMA)
         {

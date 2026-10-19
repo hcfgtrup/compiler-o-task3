@@ -1,0 +1,10 @@
+MODULE TestSimple;
+VAR
+    a, b : INTEGER;
+BEGIN
+    a := 5;
+    b := 0;
+    IF (a > 0) & (b = 0) THEN
+        a := 1;
+    END;
+END TestSimple.
