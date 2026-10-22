@@ -31,16 +31,18 @@ cmake --build .
 ```bash
 Compiler.exe ..\test_logic.o
 Compiler.exe ..\test_neg.o
+Compiler.exe ..\test2.o
 Compiler.exe ..\test_while.o
-Compiler.exe ..\test_out.o
+Compiler.exe ..\test4.o
 ```
 
 | Файл | Что проверяет | Ожидаемый вывод |
 |---|---|---|
 | `test_logic.o` | `&`, `OR`, `~` на истинных условиях | `1`, `2`, `3` |
 | `test_neg.o` | Ложные условия | три пустые строки |
+| `test2.o` | `OR` (первая ложна) + `AND` | `2` |
 | `test_while.o` | `WHILE` с `AND` | `10`, `5` |
-| `test_out.o` | `AND` + `Out.Int` | `1` |
+| `test4.o` | `OR` (первая ложна, вторая истинна) | `100` |
 
 ## Запуск через Docker
 
@@ -56,15 +58,20 @@ docker run --rm compiler-o
 ```bash
 docker run --rm compiler-o ./build/Compiler test_neg.o
 docker run --rm compiler-o ./build/Compiler test_while.o
+docker run --rm compiler-o ./build/Compiler test4.o
 ```
 
-## Ограничения
+## Как работает `OR`
 
-Виртуальная машина (ОВМ) не изменялась. `AND` и `NOT` работают в любых
-комбинациях. `OR` реализован через де Моргана: базовые случаи (когда
-первая часть истинна) работают корректно. Полная корректность `OR`
-для всех комбинаций требует двух цепочек заглушек и переработки парсера,
-что выходит за рамки учебного задания.
+Для `A OR B` генерируется три цепочки заглушек:
+
+1. **Если A ложно** — прыжок на начало B (цепочка `orCheckGaps`).
+2. **Если A истинно** — `GOTO` в тело (цепочка `orTrueGaps`), минуя B.
+3. **Если B ложно** — прыжок на выход (стандартная цепочка `lastGapAddress`).
+
+В `Parser::logicalExpressionPrc` вызов `genLogicalOr()` происходит **до** разбора
+правого операнда `B`, чтобы извлечь заглушку `A` из `lastGapAddress`. Иначе `B`
+перезапишет `lastGapAddress`, и `genLogicalOr` возьмёт не ту заглушку.
 
 ## Объяснение на защите
 
@@ -79,4 +86,4 @@ docker run --rm compiler-o ./build/Compiler test_while.o
 а генерируют **условный переход** с адресом-заглушкой. Поэтому:
 - `AND` = последовательные переходы (ничего не генерируем).
 - `NOT` = инверсия последней команды перехода (`IFLE ↔ IFGT` и т.д.).
-- `OR` = через де Моргана (`~(~A & ~B)`).
+- `OR` = три цепочки заглушек (к B, в тело, на выход).

@@ -2,6 +2,7 @@
 #include "../table/Item.h"
 
 #include <iostream>
+#include <vector>
 
 #pragma once
 
@@ -24,37 +25,52 @@ public:
     void genOutInt();
     void genOutLn();
     void genGoTo(int code);
-    
-    // ИЗМЕНЕНО: fillGaps теперь заполняет цепочку заглушек переходов
     void fillGaps(int lastGap);
-    
+    void fillOrGaps();
     void genDup();
     void genLoad();
     void genSTOP();
-    
-    // ИЗМЕНЕНО: genAddress теперь просто пишет адрес, не создавая заглушек
     void genAddress(Item& item);
-    
     void genSave();
 
-    // ДОБАВЛЕНО: методы для логических операций
+    // Логические операции
     void genLogicalAnd();
     void genLogicalOr();
     void genLogicalNot();
 
-    // ДОБАВЛЕНО: работа с цепочкой заглушек переходов
+    // Управление цепочками заглушек
     int getLastGap() { return lastGapAddress; }
-    void resetGaps() { lastGapAddress = 0; }
+    void resetGaps() { 
+        lastGapAddress = 0; 
+        lastOrCheckGap = 0; 
+        orCheckGaps.clear();
+        orTrueGaps.clear();
+    }
+    
+    // Целевые адреса для OR (заполняются в Parser)
+    void setOrBodyTarget(int target) { orBodyTarget = target; }
+    void setOrCheckTarget(int target) { orCheckTarget = target; }
 
     int getCmdCounter();
 
     void runCode();
     void printCode();
 
-
 private:
     int cmdCounter; 
     OVM ovm;
-    // ДОБАВЛЕНО: адрес последней созданной заглушки перехода
+    
+    // Цепочка для выхода из IF (AND, NOT, обычные условия)
     int lastGapAddress = 0;
+    
+    // Цепочка для перехода от A к B (OR: если A ложно — проверить B)
+    int lastOrCheckGap = 0;
+    std::vector<int> orCheckGaps;
+    
+    // Цепочка для перехода в тело (OR: если A истинно — пропустить B)
+    std::vector<int> orTrueGaps;
+    
+    // Целевые адреса (устанавливаются из Parser)
+    int orBodyTarget = 0;   // адрес тела
+    int orCheckTarget = 0;  // адрес начала B
 };

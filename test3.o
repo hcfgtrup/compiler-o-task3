@@ -1,0 +1,10 @@
+MODULE Test3;
+VAR
+    b : INTEGER;
+BEGIN
+    b := 0;
+    IF b > 0 THEN
+        Out.Int(100, 0);
+    END;
+    Out.Ln;
+END Test3.

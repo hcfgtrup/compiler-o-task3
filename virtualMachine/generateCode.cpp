@@ -7,6 +7,9 @@
 GenerateCode::GenerateCode() : ovm() {
     cmdCounter = 0;
     lastGapAddress = 0;
+    lastOrCheckGap = 0;
+    orBodyTarget = 0;
+    orCheckTarget = 0;
 } 
 
 void GenerateCode::gen(int cmd)
@@ -30,16 +33,13 @@ void GenerateCode::genConst(int constValue)
 
 void GenerateCode::genVar(Item& item)
 {
-    // ИЗМЕНЕНО: теперь просто загружаем переменную по её реальному адресу
     gen(std::stoi(item.addr));
     gen(ovm.LOAD);
 }
 
-// ИЗМЕНЕНО: сразу пишем реальный адрес переменной, без заглушек
 void GenerateCode::genAddress(Item& item)
 {
     gen(std::stoi(item.addr));
-    // item.addr уже установлен в Parser::contextVarPrc или loccateVariables
 }
 
 void GenerateCode::genFunc(std::string func)
@@ -75,39 +75,15 @@ void GenerateCode::genFunc(std::string func)
 
 void GenerateCode::genOperation(std::string operation)
 {
-    if (operation == "DIV")
-    {
-        gen(ovm.DIV);
-    }
-    else if (operation == "MULT")
-    {
-        gen(ovm.MULT);
-    }
-    else if (operation == "MOD")
-    {
-        gen(ovm.MOD);
-    }
+    if (operation == "DIV") gen(ovm.DIV);
+    else if (operation == "MULT") gen(ovm.MULT);
+    else if (operation == "MOD") gen(ovm.MOD);
 }
 
-void GenerateCode::genNegative()
-{
-    gen(ovm.NEG);
-}
-
-void GenerateCode::genAddition()
-{
-    gen(ovm.ADD);
-}
-
-void GenerateCode::genSubstraction()
-{
-    gen(ovm.SUB);
-}
-
-void GenerateCode::genSave()
-{
-    gen(ovm.SAVE);
-}
+void GenerateCode::genNegative() { gen(ovm.NEG); }
+void GenerateCode::genAddition() { gen(ovm.ADD); }
+void GenerateCode::genSubstraction() { gen(ovm.SUB); }
+void GenerateCode::genSave() { gen(ovm.SAVE); }
 
 void GenerateCode::genHalt(int exitCode)
 {
@@ -115,15 +91,8 @@ void GenerateCode::genHalt(int exitCode)
     gen(ovm.STOP);
 }
 
-void GenerateCode::genDup()
-{
-    gen(ovm.DUP);
-}
-
-void GenerateCode::genLoad()
-{
-    gen(ovm.LOAD);
-}
+void GenerateCode::genDup() { gen(ovm.DUP); }
+void GenerateCode::genLoad() { gen(ovm.LOAD); }
 
 void GenerateCode::genInInt()
 {
@@ -131,47 +100,22 @@ void GenerateCode::genInInt()
     gen(ovm.SAVE);
 }
 
-void GenerateCode::genOutInt()
-{
-    gen(ovm.OUT);
-}
+void GenerateCode::genOutInt() { gen(ovm.OUT); }
+void GenerateCode::genOutLn() { gen(ovm.LN); }
 
-void GenerateCode::genOutLn()
-{
-    gen(ovm.LN);
-}
-
-// ИЗМЕНЕНО: заглушка хранит адрес предыдущей заглушки (цепочка)
+// ИЗМЕНЕНО: заглушка хранит адрес предыдущей (цепочка выхода)
 void GenerateCode::genComparison(std::string operation)
 {
     int gapAddress = cmdCounter;
-    gen(lastGapAddress);            // в заглушку кладём предыдущую
-    lastGapAddress = gapAddress;    // обновляем "последнюю"
+    gen(lastGapAddress);
+    lastGapAddress = gapAddress;
 
-    if (operation == "=")
-    {
-        gen(ovm.IFNE);
-    }
-    else if (operation == "#")
-    {
-        gen(ovm.IFEQ);
-    }
-    else if (operation == "<")
-    {
-        gen(ovm.IFGE);
-    }
-    else if (operation == "<=")
-    {
-        gen(ovm.IFGT);
-    }
-    else if (operation == ">")
-    {
-        gen(ovm.IFLE);
-    }
-    else if (operation == ">=")
-    {
-        gen(ovm.IFLT);
-    }
+    if (operation == "=") gen(ovm.IFNE);
+    else if (operation == "#") gen(ovm.IFEQ);
+    else if (operation == "<") gen(ovm.IFGE);
+    else if (operation == "<=") gen(ovm.IFGT);
+    else if (operation == ">") gen(ovm.IFLE);
+    else if (operation == ">=") gen(ovm.IFLT);
 }
 
 void GenerateCode::genGoTo(int code)
@@ -180,7 +124,7 @@ void GenerateCode::genGoTo(int code)
     gen(ovm.GOTO);
 }
 
-// ИЗМЕНЕНО: проходит по всей цепочке заглушек и заполняет их
+// Заполняет цепочку выхода
 void GenerateCode::fillGaps(int lastGap)
 {
     while (lastGap > 0)
@@ -192,46 +136,58 @@ void GenerateCode::fillGaps(int lastGap)
     lastGapAddress = 0;
 }
 
-void GenerateCode::genSTOP()
+// ДОБАВЛЕНО: заполняет цепочки OR (body и check)
+void GenerateCode::fillOrGaps()
 {
-    gen(ovm.STOP);
+    for (int gap : orTrueGaps)
+    {
+        ovm.getMemory()[gap] = orBodyTarget;
+    }
+    orTrueGaps.clear();
+
+    for (int gap : orCheckGaps)
+    {
+        ovm.getMemory()[gap] = orCheckTarget;
+    }
+    orCheckGaps.clear();
 }
 
-int GenerateCode::getCmdCounter()
-{
-    return cmdCounter;
-}
+void GenerateCode::genSTOP() { gen(ovm.STOP); }
 
-void GenerateCode::runCode()
-{
-    ovm.run();
-}
+int GenerateCode::getCmdCounter() { return cmdCounter; }
 
-void GenerateCode::printCode()
-{
-    ovm.printCode(cmdCounter);
-}
+void GenerateCode::runCode() { ovm.run(); }
 
-// ДОБАВЛЕНО: AND работает автоматически
+void GenerateCode::printCode() { ovm.printCode(cmdCounter); }
+
+// AND — ничего не генерируем
 void GenerateCode::genLogicalAnd()
 {
     // AND реализован через последовательные переходы.
-    // Ничего генерировать не нужно.
 }
 
-// ДОБАВЛЕНО: OR через де Моргана
+// ДОБАВЛЕНО: правильная реализация OR
 void GenerateCode::genLogicalOr()
 {
-    genLogicalNot();
+    if (lastGapAddress > 0)
+    {
+        int prev = ovm.getMemory()[lastGapAddress];
+        orCheckGaps.push_back(lastGapAddress);
+        lastGapAddress = prev;
+    }
+    
+    int gapAddress = cmdCounter;
+    gen(0);
+    gen(ovm.GOTO);
+    orTrueGaps.push_back(gapAddress);
+    
+    orCheckTarget = cmdCounter;
 }
 
-// ДОБАВЛЕНО: NOT — инверсия последней команды перехода
+// NOT — инверсия последней команды перехода
 void GenerateCode::genLogicalNot()
 {
-    if (cmdCounter <= 0)
-    {
-        return;
-    }
+    if (cmdCounter <= 0) return;
 
     int& lastCmd = ovm.getMemory()[cmdCounter - 1];
 

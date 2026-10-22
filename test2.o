@@ -1,0 +1,21 @@
+MODULE TestLogic;
+VAR
+    a, b, c : INTEGER;
+BEGIN
+    a := 5;
+    b := 0;
+    c := 10;
+
+    (* Проверка OR *)
+    IF ( b > 0) OR (a > 0) THEN
+        Out.Int(2, 0);
+    END;
+    Out.Ln;
+
+        (* Проверка OR *)
+    IF (a > 0) &(b > 0) THEN
+        Out.Int(2, 0);
+    END;
+    Out.Ln;
+
+END TestLogic.
